@@ -10,3 +10,4 @@ __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 reports/figures/*.html
+fraud_detection.egg-info/
