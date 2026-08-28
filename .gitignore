@@ -15,3 +15,5 @@ fraud_detection.egg-info/
 .pytest_cache/
 .vscode/
 tests.ipynb
+*.db
+plots.ipynb

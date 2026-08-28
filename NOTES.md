@@ -91,15 +91,62 @@ Key learning: velocity features WERE providing signal all along. The
 their contribution. Always fix training pathologies before evaluating 
 feature engineering.
 
-Sanity check needed: P@200 = 0.99 is suspiciously high, verify no leakage.
-
-### Sanity check on P@200 = 0.99 (Day 7)
-Val has 4090 frauds — top-200 is only 5% of available fraud, so 0.99 
-is achievable without leakage. Random baseline P@200 = 0.039. 
-Model is 25× better than random. Result is real.
-
 ### Remaining fraud budget for Week 2 improvements
 - ROC-AUC: 0.923 → room to grow (ceiling ~0.98)
 - PR-AUC: 0.600 → most room to grow (ceiling ~0.85 realistic)
 - P@200: 0.990 → near ceiling, Week 2 unlikely to move this much
 
+### CV design trade-off (Day 8)
+val_fraction is auto-computed from n_folds so window sizes fit within
+the CV data without overlap. But this creates a trade-off:
+- More folds → smaller val → noisier per-fold metrics
+- Fewer folds → bigger val → fewer independent measurements
+
+Chose 5 folds (val_fraction ≈ 10%) — gives ~1600 frauds per val window,
+comfortably above the 500-fraud threshold for stable metrics.
+
+Added min_val_frauds guardrail that warns if any fold's val window is 
+too small to trust.
+
+### Walk-forward CV results (Day 8)
+5-fold walk-forward, initial train=50%, val_fraction=10% (auto), test held out.
+
+Metric         Mean     Std      Range
+ROC-AUC       0.926    0.015    [0.90, 0.94]
+PR-AUC        0.637    0.048    [0.56, 0.68]  
+P@200         0.973    0.010    [0.96, 0.99]
+
+Single-split val (Day 6) reported PR-AUC 0.600 — that was one draw from a 
+distribution actually centered at 0.637. CV gives more honest headline number.
+
+Fold 2 is a soft outlier: PR-AUC 0.56 vs ~0.65 elsewhere, best_iter 539 vs 
+~700 avg. Interpretation: fraud tactics or customer mix shifted in that 
+window — the model learned less transferable patterns from prior data. 
+This is real concept drift, and it's the kind of thing K-fold would have 
+averaged away.
+
+Best iteration variation (539-865) suggests periodic retraining would be 
+necessary in production. Adds to Week 4 monitoring/drift story.
+
+
+### Day 9 — Optuna results (30 trials, 5 folds walk-forward)
+Best trial: 13
+Best PR-AUC: 0.6499 (baseline 0.6371, +2% relative lift)
+Best params:
+  learning_rate     0.072
+  num_leaves        128
+  max_depth         12
+  min_child_samples 11
+  feature_fraction  0.50   ← strong feature regularization preferred
+  bagging_fraction  0.81
+  bagging_freq      3
+  lambda_l1         ~0
+  lambda_l2         0.004
+
+Optuna preferred higher capacity per tree + aggressive feature 
+subsampling — model works better when forced to diversify across features
+rather than relying on the same few top features every tree.
+
+Fold 2 remained persistently ~0.1 below other folds across ALL trials — 
+this is real concept drift, not a hyperparameter issue. Will address 
+via monitoring (Week 4), not modeling.
