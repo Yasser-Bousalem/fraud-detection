@@ -1,7 +1,7 @@
 data/raw/
 data/interim/
 data/processed/
-models/
+/models/
 mlruns/
 __pycache__/
 *.pyc
@@ -11,3 +11,7 @@ __pycache__/
 .DS_Store
 reports/figures/*.html
 fraud_detection.egg-info/
+.claude/
+.pytest_cache/
+.vscode/
+tests.ipynb
