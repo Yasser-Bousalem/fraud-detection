@@ -1,0 +1,7 @@
+,roc_auc,roc_auc,pr_auc,pr_auc,precision@k,precision@k
+,mean,std,mean,std,mean,std
+strategy,,,,,,
+baseline,0.9249,0.0146,0.6499,0.0366,0.98,0.0166
+scale_pos_weight,0.9139,0.0192,0.6262,0.0693,0.962,0.0307
+smote,0.9278,0.0163,0.6476,0.0578,0.97,0.0245
+undersample_5to1,0.9259,0.0149,0.6277,0.056,0.977,0.022

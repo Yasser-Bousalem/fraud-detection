@@ -150,3 +150,181 @@ rather than relying on the same few top features every tree.
 Fold 2 remained persistently ~0.1 below other folds across ALL trials — 
 this is real concept drift, not a hyperparameter issue. Will address 
 via monitoring (Week 4), not modeling.
+
+### Day 10 — Imbalance strategy experiment
+
+Tested four strategies on 5-fold walk-forward CV using tuned hyperparameters:
+
+| Strategy | PR-AUC | Std | P@200 | Notes |
+|---|---|---|---|---|
+| baseline (no rebalancing) | 0.6499 | 0.037 | 0.980 | Best AND most stable |
+| SMOTE | 0.6476 | 0.058 | 0.970 | ~tied on mean, 60% more variance |
+| undersample 5:1 | 0.6277 | 0.056 | 0.977 | Threw away information |
+| scale_pos_weight | 0.6262 | 0.069 | 0.962 | Worst — distorted feature learning |
+
+**Result: baseline wins.** No rebalancing is applied.
+
+Why: LightGBM handles imbalance well through pure-region tree splits. Rank-based
+metrics don't reward the calibrated probabilities that rebalancing would improve.
+SMOTE-synthesized minority samples in high-dim sparse fraud data don't reflect 
+real fraud patterns. Undersampling costs information. scale_pos_weight distorts 
+feature-target relationships during learning.
+
+This matches the general finding in fraud literature that tree-based models with 
+rank-based eval rarely benefit from rebalancing. Calibration (Day 11) will be 
+applied afterward to fix probability scores without touching training data.
+
+### Day 10 MLflow logging
+Logged parameters and metrics only — no model artifacts, since Day 10 was 
+a strategy comparison and no individual fold-trained model was retained.
+The winning strategy (baseline, no rebalancing) will be applied when 
+training the final champion model on Day 11 with calibration, and that 
+model will be fully logged with artifacts.
+### Day 11 — Calibration results
+Champion model (baseline, tuned params, 355 trees) evaluated on val:
+- ROC-AUC       : 0.9231
+- PR-AUC        : 0.6142
+- P@200         : 1.0000
+- Brier (raw)   : 0.02263
+- Brier (cal)   : 0.02214 (in-sample; honest test-set measurement on Day 14)
+
+Key finding: model is already reasonably calibrated out-of-the-box.
+Isotonic calibration provided only 2.2% Brier improvement. This is a 
+consequence of:
+  1. No rebalancing applied (baseline strategy from Day 10)
+  2. Early stopping on PR-AUC (not logloss) prevented over-fitting toward
+     extreme probabilities
+
+Reliability curves for raw and calibrated overlap almost perfectly along
+the diagonal for the observable score range (0 to ~0.42). Score 
+distribution is heavily concentrated at the low end (as expected for
+imbalanced data), so no observations exist beyond ~0.42 mean predicted
+probability in this val set.
+
+Calibrator kept for pipeline consistency — will still be applied at
+scoring time so downstream cost-sensitive threshold calculations (Day 12)
+use meaningful probabilities. Contribution is small but non-zero.
+### Day 12 — Cost-sensitive threshold optimization
+
+Business context (derived from data):
+  Daily transaction volume : 2953
+  Avg fraud amount         : $172
+  Analyst review cost      : $5 (estimated)
+  Daily review capacity    : 200 alerts
+
+Optimal operating threshold: 0.1063 (calibrated probability)
+
+At this threshold:
+  Alerts per day    : 191 (95% capacity utilization)
+  Precision         : 41.5%
+  Recall            : 67.7%
+  Fraud caught      : 2,771 (of 4,092)
+  Fraud missed      : 1,321
+  False alarms      : 3,905 (over 35-day val window)
+
+Daily economics:
+  Gross savings     : $13,568
+  Review cost       : $953
+  Net daily savings : $12,615
+  Annualized (×365) : $4,604,658
+
+Caveats to communicate:
+  - Avg fraud recovery is likely 60-80% of face value in practice
+    → realistic annual savings: $2.8M–$3.7M
+  - Review cost is estimated at $5 flat; real analyst time varies
+    from ~$0.50 (fast reject) to $30 (complex case)
+  - Model + threshold assume production data distribution matches val
+
+Threshold was chosen to maximize net daily savings SUBJECT TO the 
+capacity constraint. Without the constraint, the theoretical peak savings
+threshold is ~0.02, but that generates thousands of alerts/day — 
+unusable by a real fraud team.
+
+Result: model saves an estimated $3-4M annually while staying within
+analyst review capacity.
+
+## Results
+
+On a held-out test set of 118K transactions (~42 days, 3.4% fraud rate), 
+the model achieves:
+
+| Metric | Value | 95% CI |
+|---|---|---|
+| ROC-AUC | 0.887 | [0.882, 0.893] |
+| PR-AUC | 0.461 | [0.446, 0.477] |
+| Precision@200 | 0.960 | [0.905, 0.975] |
+| Brier score | 0.024 | — |
+
+At the cost-optimized operating threshold (0.106 on calibrated probability):
+- **58% of fraud caught** while flagging 181 transactions per day (91% capacity utilization)
+- **31% precision** at operating point (top-200 flagged: 96% precision)
+- **Net daily savings: ~$7,500**, or **~$2.7M annually** at the assumed 
+  $172 average fraud amount and $5 analyst review cost
+
+Adjusted for realistic fraud recovery rates (60–80% of face value), the 
+estimated annual net savings range is **$1.6M–$2.2M**.
+
+Test performance is meaningfully below validation performance 
+(PR-AUC 0.46 vs 0.61) — consistent with the concept drift observed 
+during walk-forward cross-validation. Production deployment would 
+require monthly retraining and continuous drift monitoring.
+
+### Day 14 — Final test evaluation
+
+The gap between val and test performance (PR-AUC 0.61 → 0.46) is the 
+single most important finding of the project. This is fraud drift 
+made visible.
+
+Val was drawn from days ~110-140 (middle of timeline).
+Test was drawn from days 145-190 (end of timeline).
+
+Between val and test, roughly 5 weeks pass. In fraud, tactics evolve 
+significantly in 5 weeks — new attack rings emerge, existing rings adapt 
+after countermeasures, seasonal patterns shift.
+
+The model still delivers strong business value ($2.7M annualized) but
+degrades meaningfully on temporally-distant data. This is precisely why:
+
+1. Test set was held out (never touched during any tuning)
+2. Walk-forward CV was used instead of random K-fold  
+3. Week 4 will implement drift monitoring
+4. Production deployment plan includes monthly retraining
+
+Also interesting: P@200 held up much better (1.00 → 0.96) than 
+PR-AUC (0.61 → 0.46). Top-of-distribution ranking is robust; deep 
+score ranking is fragile. This validates the top-k operating strategy — 
+the model is more trustworthy at its most confident predictions.
+
+### Day 15 — Global SHAP explainability
+
+Top 5 features by SHAP (mean |value|):
+  C13            0.263  (Vesta's own count feature)
+  TransactionAmt 0.256
+  TransactionDT  0.221
+  card6          0.173  (credit vs debit)
+  P_emaildomain  0.170  (purchaser email domain)
+
+Engineered features in top 15:
+  card1_tx_count_7d at rank #12 — SHAP-verified that Day 6 velocity 
+  engineering added real signal, not just numerical lift.
+
+Key insight — SHAP vs LightGBM built-in gain importance disagree 
+meaningfully on 5+ features:
+  - C5 / V91 / V70 / card6 / P_emaildomain: 
+    LOW split count, HIGH per-split impact
+    → decisive but rarely-used features → drift-sensitive
+  - card2 / C14: 
+    HIGH split count, MODEST per-split impact
+    → granular features → drift-robust
+
+This distinction guides monitoring priorities in Week 4.
+
+Beeswarm reveals directional effects:
+  - LOW C13 → pushes toward fraud (short history is risky)
+  - LOW TransactionAmt → pushes toward fraud (card testing pattern)
+  - LOW card1_tx_count_7d → pushes toward fraud (dormant/new cards)
+  - Categorical features (card6, P_emaildomain) show clean split behavior
+
+SHAP TreeExplainer used on 5000-row val sample. Exact algorithm for tree 
+ensembles — no approximation. Full explainer saved to models/shap_explainer.pkl 
+for Day 16 reason codes.
