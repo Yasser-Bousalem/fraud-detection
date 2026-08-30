@@ -1,0 +1,12 @@
+{
+  "addr1": {
+    "n_groups": 39,
+    "fpr_disparity": 9.694163763066202,
+    "flag_disparity": 9.674826287149436
+  },
+  "P_emaildomain": {
+    "n_groups": 13,
+    "fpr_disparity": 125.46255506607929,
+    "flag_disparity": 67.32283464566929
+  }
+}

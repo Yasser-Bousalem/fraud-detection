@@ -328,3 +328,59 @@ Beeswarm reveals directional effects:
 SHAP TreeExplainer used on 5000-row val sample. Exact algorithm for tree 
 ensembles — no approximation. Full explainer saved to models/shap_explainer.pkl 
 for Day 16 reason codes.
+
+### Day 16 — Local reason codes
+
+Built ReasonCodeExplainer class (reusable for FastAPI on Day 19):
+- Per-transaction SHAP → top-K positive contributors → human templates
+- prefer_interpretable mode surfaces explainable features first,
+  falls back to anonymized signals only to fill slots
+- Fixed prefix-matching bug (DeviceInfo was mislabeled as D-family)
+
+Example true fraud reason codes:
+  1. Transaction amount is $300
+  2. Card type: credit
+  3. 6 transactions on this device in the last hour
+
+Fraud signature identified: $300 + credit + device velocity — likely a 
+campaign hitting the same amount repeatedly.
+
+Model failure mode (from false-positive reason codes):
+  Legit credit-card transactions at $150-300 with modest device activity 
+  are near-indistinguishable from fraud on human-readable features. The 
+  separating signal lives in Vesta's anonymized columns. In production with 
+  richer features (merchant reputation, geo, customer history), these cases 
+  would be separable.
+
+Honest limitation documented: on heavily anonymized data, some reason codes 
+must reference "internal signals". The infrastructure is dataset-agnostic; 
+only the translation dictionary is dataset-specific.
+
+### Day 17 — Fairness audit (final conclusion)
+
+Normalized over-flag ratio (FPR / fraud_rate) across billing regions:
+  Range: 0.61 to 5.75
+  Std:   1.26
+  Most groups cluster between 0.7 and 2.5 (roughly proportional to risk)
+
+Over-flagged regions (flagged more than risk justifies):
+  Region 251: fraud 0.6%, FPR 3.6% → 5.75x over-flagged (n=1109)
+  Region 469: fraud 0.8%, FPR 4.8% → 5.65x over-flagged (n=591)
+  Region 476: fraud 1.3%, FPR 5.7% → 4.54x over-flagged (n=1827)
+
+Pattern: over-flagged regions are SMALL and LOW-fraud → likely a 
+data-sparsity effect (model has less signal, defaults to over-caution)
+rather than systematic demographic bias.
+
+Reassuring counter-finding: the highest-risk group (missing address, 
+fraud rate 13.5%) is UNDER-flagged at 0.70x — the model is conservative 
+on high-risk groups, not aggressive.
+
+CONCLUSION: Moderate, localized disparate impact affecting a handful of 
+small low-fraud regions. Not systematic. Recommended mitigations:
+  1. Per-region FPR monitoring in production
+  2. Minimum-sample thresholds before applying region-based features
+  3. Consider region-agnostic fallback scoring for low-data regions
+  4. Periodic human review of high over-flag-ratio groups
+
+This is a screening audit on proxy attributes, not a certification.
