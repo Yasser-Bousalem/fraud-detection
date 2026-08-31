@@ -480,3 +480,23 @@ label-based performance monitoring is essential.
 This is the strongest analytical finding of the project: drift monitoring
 caught a real feature-engineering bug, fixing it improved the model, and
 the clean post-fix drift enabled a precise covariate-vs-concept diagnosis.
+
+### Day 25 — Tests + CI complete
+
+11 tests across 4 files:
+- test_split.py: time-based split integrity, no temporal leakage
+- test_velocity.py: gap-window correctness, count bounds (regression guard 
+  for the coarse-entity bug)
+- test_api.py: health, version, scoring, input validation (422s)
+- test_drift.py: PSI on identical/shifted/NaN distributions
+
+GitHub Actions CI runs pytest + ruff on every push. Data-dependent tests 
+skip cleanly in CI (raw CSVs not in repo) via a conftest marker.
+
+Bugs CI caught that local testing masked:
+- httpx missing (TestClient dependency) — local env had it, CI didn't
+- Train/serve skew: feature_cols.json stale after retrain (441 vs 436)
+  → fixed by deriving feature schema from the model artifact itself
+- Model artifacts not committed → API tests couldn't load model on CI
+
+Each was a real reproducibility gap. CI's value demonstrated concretely.
