@@ -1,0 +1,12 @@
+{
+  "chosen_threshold": 0.11133165829145729,
+  "expected_daily_net": 12762.759162723694,
+  "expected_annual": 4658407.094394148,
+  "context": {
+    "n_days": 35.029386574074074,
+    "daily_volume": 2952.6637522265532,
+    "avg_fraud_amt": 171.52409995112413,
+    "review_cost": 5.0,
+    "daily_capacity": 200.0
+  }
+}
