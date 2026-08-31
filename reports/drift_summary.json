@@ -1,0 +1,29 @@
+{
+  "prediction_psi": 0.045828818032401186,
+  "reference_fraud_rate": 0.03383344057980831,
+  "current_fraud_rate": 0.034409184813899145,
+  "features_major_drift": 0,
+  "features_moderate_drift": 0,
+  "top_drifting_features": [
+    {
+      "feature": "D15",
+      "psi": 0.05652190230974419
+    },
+    {
+      "feature": "C13",
+      "psi": 0.030328799106569583
+    },
+    {
+      "feature": "D1",
+      "psi": 0.027049719100696975
+    },
+    {
+      "feature": "card1_tx_count_24h",
+      "psi": 0.021842529973568857
+    },
+    {
+      "feature": "D2",
+      "psi": 0.021465391931964214
+    }
+  ]
+}

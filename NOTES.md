@@ -384,3 +384,99 @@ small low-fraud regions. Not systematic. Recommended mitigations:
   4. Periodic human review of high over-flag-ratio groups
 
 This is a screening audit on proxy attributes, not a certification.
+
+
+### Latency optimization decision
+Reason codes computed only for flagged ("review") transactions, since 
+approved transactions' explanations are never consumed by analysts. If 
+regulatory requirements demanded explanation of approvals, the native 
+pred_contrib path (~5ms) could be enabled for all transactions with 
+minimal latency cost.
+
+### Day 20 — Latency optimization
+
+Initial: 2200ms (cold-start artifact — first SHAP calls warming caches)
+Warm baseline: ~130ms (SHAP dominated)
+
+Optimization: compute SHAP reason codes ONLY for flagged transactions,
+since approved transactions' explanations are never consumed by analysts.
+
+Result:
+  Approve path (~94% traffic): ~25ms (no SHAP)
+  Flagged path (~6% traffic):  ~130ms (with SHAP reason codes)
+  Effective average:           ~31ms
+
+Design rationale: reason codes serve analysts reviewing flagged cases.
+Approved transactions need only the score + decision. Skipping SHAP for
+approvals means the system has no latency cliff even during fraud attacks
+when flagging rates spike, because flagged volume is bounded by analyst
+review capacity anyway (200/day).
+
+Documented future optimization: consolidate the 3 model.predict() calls on
+the flagged path into one, and/or move to a distilled surrogate model for
+reason codes, to bring flagged-path latency under 50ms.
+
+### MLflow architecture decision
+Fraud project: MLflow = dev-time experiment tracking. API loads models 
+from flat files, no runtime MLflow dependency. NOT containerizing MLflow.
+
+Rationale: the 5G-NIDD (Maroc Telecom) project already demonstrates the 
+full "governed model registry + Airflow retraining + human-in-the-loop" 
+MLOps story. Duplicating it here would blur the distinction between the 
+two projects. This project's story is rigorous modeling + honest 
+evaluation + clean containerized serving.
+
+Documented as intentional in README with cross-reference to 5G-NIDD.
+
+### Day 22-23 — Streamlit analyst dashboard
+
+Built dashboard/app.py — the analyst-facing console:
+- Alert queue: 237 flagged transactions from recent test window, 
+  sorted by score, 37.1% queue precision (matches Day 14 operating point)
+- Per-alert reason codes (reuses ReasonCodeExplainer from Day 16)
+- Confirm Fraud / False Alarm buttons → persists to analyst_feedback.json
+- Live analyst precision tracking in sidebar
+- Queue analytics tab: score + amount distributions
+
+This closes the human-in-the-loop MLOps loop visually:
+  flag → review with reason codes → label → feedback becomes training data
+
+Design: dashboard reuses the exact scoring + explainability code as the 
+API (no logic duplication). Self-contained — loads model directly rather 
+than requiring the API process, so the demo runs with one command.
+
+### Day 24 — Drift monitoring + feature bug discovery (MAJOR finding)
+
+Drift monitoring flagged device_distinct_cards_24h (PSI 1.88) and 
+email_distinct_cards_24h (PSI 1.65) as MAJOR drift.
+
+Investigation revealed the root cause: these features grouped velocity on 
+DeviceInfo and P_emaildomain, which are COARSE CATEGORIES not entities.
+"Windows" = 6224 transactions (every Windows machine). "gmail.com" = 
+millions of users. So "distinct cards per device in 24h" was really 
+"distinct cards per platform" — hundreds per day, and growing over time as 
+traffic accumulated → the PSI 1.8 drift.
+
+IEEE-CIS has no true device/user ID. card1 is the finest available entity 
+(itself a coarse segment/BIN-level key, but bounded and reasonable).
+
+FIX: removed the two coarse distinct-card features. Kept card1-based 
+velocity (tx_count_24h, tx_count_7d, seconds_since_last) — bounded, sane,
+SHAP-verified as real signal.
+
+RESULT after retrain:
+  Test PR-AUC:  0.461 → 0.483  (IMPROVED — broken features were noise)
+  Test P@200:   0.960 → 0.980  (IMPROVED)
+  Annual saving: $2.73M → $2.81M
+  Drift: all features now PSI < 0.06, zero major/moderate flags
+
+KEY INSIGHT: with feature distributions now stable (all PSI < 0.06) but 
+test PR-AUC still below val, the val→test gap is isolated as CONCEPT DRIFT
+(feature→target relationship changing) rather than COVARIATE DRIFT (inputs
+shifting). This is the fundamental reason fraud models decay and require
+retraining — and why feature-drift monitoring alone is insufficient;
+label-based performance monitoring is essential.
+
+This is the strongest analytical finding of the project: drift monitoring
+caught a real feature-engineering bug, fixing it improved the model, and
+the clean post-fix drift enabled a precise covariate-vs-concept diagnosis.

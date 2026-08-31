@@ -1,0 +1,14 @@
+data/
+notebooks/
+reports/
+mlruns/
+*.db
+.git/
+.pytest_cache/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+optuna_studies.db
+mlflow.db
+.claude/
+*.egg-info/

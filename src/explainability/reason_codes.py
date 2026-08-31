@@ -113,42 +113,33 @@ class ReasonCodeExplainer:
         self.explainer = joblib.load(explainer_path)
         self.base_value = self.explainer.expected_value
 
-    def explain_one(
-        self, x_row: pd.DataFrame, top_k: int = 3, prefer_interpretable: bool = True
-    ) -> dict:
+    def explain_one(self, x_row, top_k=3, prefer_interpretable=True):
+        contribs = self.model.predict(x_row, pred_contrib=True)[0]
+        shap_vals = contribs[:-1]   # last element is base value
         raw_score = float(self.model.predict(x_row)[0])
-        shap_vals = self.explainer.shap_values(x_row)
-        if isinstance(shap_vals, list):
-            shap_vals = shap_vals[1]
-        shap_vals = shap_vals[0]
 
         feature_names = x_row.columns.tolist()
         contributions = list(zip(feature_names, shap_vals, x_row.iloc[0].values))
         contributions.sort(key=lambda t: t[1], reverse=True)
 
-        # positive contributors only
         positive = [c for c in contributions if c[1] > 0]
 
         if prefer_interpretable:
             interpretable = [c for c in positive if c[0] in FEATURE_TEMPLATES]
-            anonymized = [c for c in positive if c[0] not in FEATURE_TEMPLATES]
-            # take interpretable first, fill remaining slots with anonymized
+            anonymized    = [c for c in positive if c[0] not in FEATURE_TEMPLATES]
             ordered = interpretable + anonymized
         else:
             ordered = positive
 
         reason_codes = []
         for name, shap_val, value in ordered[:top_k]:
-            reason_codes.append(
-                {
-                    "feature": name,
-                    "explanation": humanize_feature(name, value),
-                    "shap_impact": round(float(shap_val), 4),
-                }
-            )
+            reason_codes.append({
+                "feature":     name,
+                "explanation": humanize_feature(name, value),
+                "shap_impact": round(float(shap_val), 4),
+            })
 
         return {"fraud_score": round(raw_score, 4), "reason_codes": reason_codes}
-
 
 def demo():
     """Load champion model + explainer, explain a few sample transactions."""
