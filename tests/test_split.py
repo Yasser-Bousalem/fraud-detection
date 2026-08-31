@@ -1,7 +1,8 @@
 from src.data.load import load_raw
 from src.data.split import time_split
+from tests.conftest import requires_data
 
-
+@requires_data
 def test_no_temporal_leakage():
     df = load_raw(nrows=10_000)
     train, val, test = time_split(df)
@@ -11,7 +12,7 @@ def test_no_temporal_leakage():
     assert val["TransactionDT"].max() <= test["TransactionDT"].min(), \
         "Leakage: val contains timestamps after test start"
 
-
+@requires_data
 def test_split_sizes():
     df = load_raw(nrows=10_000)
     train, val, test = time_split(df)

@@ -58,18 +58,20 @@ class FraudScoringService:
 
     def _build_feature_row(self, tx: dict) -> pd.DataFrame:
         """
-        Turn an incoming transaction dict into a single-row DataFrame with
-        ALL expected feature columns in the right order. Missing → NaN.
-        Categorical columns are cast to 'category' dtype so LightGBM matches
-        the training schema.
+        Build a single-row DataFrame with ALL expected feature columns in order.
+        Missing → NaN. Categorical cols → category dtype. Everything else → numeric.
         """
         row = {col: tx.get(col, np.nan) for col in self.feature_cols}
         df = pd.DataFrame([row], columns=self.feature_cols)
 
-        # cast the KNOWN categorical columns (from training) to category dtype
-        for col in self.categorical_cols:
-            if col in df.columns:
+        cat_set = set(self.categorical_cols)
+
+        for col in df.columns:
+            if col in cat_set:
                 df[col] = df[col].astype("category")
+            else:
+                # force numeric — coerces stray objects/None to proper float NaN
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
         return df
 
@@ -79,8 +81,9 @@ class FraudScoringService:
         Returns dict with fraud_score, decision, threshold, reason_codes, version.
         """
         import time
+
         X = self._build_feature_row(tx)
-        
+
         t0 = time.perf_counter()
         # raw model score → calibrated probability
         raw = float(self.model.predict(X)[0])
@@ -95,7 +98,7 @@ class FraudScoringService:
         else:
             reason_codes = []
         t2 = time.perf_counter()
-        logger.info("predict=%.1fms  shap=%.1fms", (t1-t0)*1000, (t2-t1)*1000)
+        logger.info("predict=%.1fms  shap=%.1fms", (t1 - t0) * 1000, (t2 - t1) * 1000)
         return {
             "fraud_score": round(proba, 4),
             "decision": decision,
